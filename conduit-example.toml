@@ -55,3 +55,10 @@ trusted_servers = ["matrix.org"]
 
 address = "127.0.0.1" # This makes sure Conduit can only be reached using the reverse proxy
 #address = "0.0.0.0" # If Conduit is running in a container, make sure the reverse proxy (ie. Traefik) can reach it.
+
+[default.openid]
+client_id = "conduit"
+secret = "00000000-0000-0000-0000-000000000000"
+discover_url = "https://keycloak.domain.com/auth/realms/Realm_name"
+macaroon_key = "this is the key"
+redirect_url = "http://localhost:8081/sso_return"

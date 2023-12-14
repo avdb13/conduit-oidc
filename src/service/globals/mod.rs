@@ -75,6 +75,8 @@ pub struct Service {
     pub rotate: RotationHandler,
 
     pub shutdown: AtomicBool,
+
+    pub openid_client: Option<(macaroon::MacaroonKey, openid::DiscoveredClient)>,
 }
 
 /// Handles "rotation" of long-polling requests. "Rotation" in this context is similar to "rotation" of log files and the like.
@@ -147,7 +149,7 @@ impl Resolve for Resolver {
 }
 
 impl Service {
-    pub fn load(db: &'static dyn Data, config: Config) -> Result<Self> {
+    pub async fn load(db: &'static dyn Data, config: Config) -> Result<Self> {
         let keypair = db.load_keypair();
 
         let keypair = match keypair {
@@ -182,6 +184,28 @@ impl Service {
         // Experimental, partially supported room versions
         let unstable_room_versions = vec![RoomVersionId::V3, RoomVersionId::V4, RoomVersionId::V5];
 
+        let openid_client = match config.openid.as_ref() {
+            Some(openid) => {
+                let mut key_bytes: [u8; 32] = [0; 32];
+                key_bytes.copy_from_slice(&base64::decode(&openid.macaroon_key).unwrap());
+                let secret_key: macaroon::MacaroonKey = key_bytes.into();
+
+                let r = (
+                    secret_key,
+                    openid::DiscoveredClient::discover(
+                        openid.client_id.to_owned(),
+                        openid.secret.to_owned(),
+                        Some(openid.redirect_url.to_owned()),
+                        openid.discover_url.to_owned(),
+                    )
+                    .await
+                    .unwrap(),
+                );
+                Some(r)
+            }
+            None => None,
+        };
+
         let mut s = Self {
             db,
             config,
@@ -212,6 +236,7 @@ impl Service {
             sync_receivers: RwLock::new(HashMap::new()),
             rotate: RotationHandler::new(),
             shutdown: AtomicBool::new(false),
+            openid_client,
         };
 
         fs::create_dir_all(s.get_media_folder())?;

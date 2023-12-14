@@ -253,6 +253,10 @@
 
           # Needed for our script for Complement
           jq
+
+          # Needed for SSO
+          pkgs.openssl
+          pkgs.pkg-config
         ]);
       };
     });

@@ -4,6 +4,7 @@ use std::{
     net::{IpAddr, Ipv4Addr},
 };
 
+use reqwest::Url;
 use ruma::{OwnedServerName, RoomVersionId};
 use serde::{de::IgnoredAny, Deserialize};
 use tracing::warn;
@@ -79,6 +80,7 @@ pub struct Config {
     pub turn_secret: String,
     #[serde(default = "default_turn_ttl")]
     pub turn_ttl: u64,
+    pub openid: Option<OpenIdConfig>,
 
     pub emergency_password: Option<String>,
 
@@ -90,6 +92,15 @@ pub struct Config {
 pub struct TlsConfig {
     pub certs: String,
     pub key: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct OpenIdConfig {
+    pub client_id: String,
+    pub secret: String,
+    pub discover_url: Url,
+    pub macaroon_key: String,
+    pub redirect_url: String,
 }
 
 const DEPRECATED_KEYS: &[&str] = &["cache_capacity"];

@@ -37,7 +37,7 @@ pub struct Services {
 }
 
 impl Services {
-    pub fn build<
+    pub async fn build<
         D: appservice::Data
             + pusher::Data
             + rooms::Data
@@ -115,7 +115,7 @@ impl Services {
             media: media::Service { db },
             sending: sending::Service::build(db, &config),
 
-            globals: globals::Service::load(db, config)?,
+            globals: globals::Service::load(db, config).await?,
         })
     }
     fn memory_usage(&self) -> String {

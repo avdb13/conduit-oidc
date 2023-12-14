@@ -401,7 +401,7 @@ impl KeyValueDatabase {
 
         let db = Box::leak(db_raw);
 
-        let services_raw = Box::new(Services::build(db, config)?);
+        let services_raw = Box::new(Services::build(db, config).await?);
 
         // This is the first and only time we initialize the SERVICE static
         *SERVICES.write().unwrap() = Some(Box::leak(services_raw));

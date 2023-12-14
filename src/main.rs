@@ -148,6 +148,7 @@ async fn run_server() -> io::Result<()> {
     let x_requested_with = HeaderName::from_static("x-requested-with");
 
     let middlewares = ServiceBuilder::new()
+        // TODO token
         .sensitive_headers([header::AUTHORIZATION])
         .layer(axum::middleware::from_fn(spawn_task))
         .layer(
@@ -399,6 +400,11 @@ fn routes() -> Router {
             "/_matrix/key/v2/server/:key_id",
             get(server_server::get_server_keys_deprecated_route),
         )
+        .route(
+            "/_matrix/client/v3/login/sso/redirect",
+            get(client_server::get_sso_redirect),
+        )
+        .route("/sso_return", get(client_server::get_sso_return))
         .ruma_route(server_server::get_public_rooms_route)
         .ruma_route(server_server::get_public_rooms_filtered_route)
         .ruma_route(server_server::send_transaction_message_route)
