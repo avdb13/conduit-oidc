@@ -1,19 +1,21 @@
 use axum::extract::Query;
 use axum::response::IntoResponse;
-use axum::Error;
 use axum_extra::extract::cookie::{Cookie, SameSite};
 use axum_extra::extract::CookieJar;
 use macaroon::Macaroon;
-use openid::{Token, Userinfo};
+use openid::{Token, Userinfo, Provider};
 use rand::{thread_rng, Rng};
 use reqwest::Url;
+use ring::digest;
+use ruma::api::client::error::ErrorKind;
 use serde::{Deserialize, Serialize};
 
-use crate::{services, Result};
+use crate::{services, Result, Error};
 
 const COOKIE_STATE_EXPIRATION_SECS: i64 = 10 * 60;
 const MAC_VALID_SECS: i64 = 10;
 const PROOF_KEY_LEN: usize = 32;
+const NONCE_LEN: usize = 32;
 
 #[derive(Deserialize, Serialize)]
 struct State {
@@ -27,15 +29,20 @@ pub struct SsoRedirectParams {
     pub redirect_url: String,
 }
 
+/// # `GET  /_matrix/client/v3/login/sso/redirect`
+///
+/// Redirect user to SSO interface.
+///
 pub async fn get_sso_redirect(
     Query(params): Query<SsoRedirectParams>,
+    // State(uia_session): State<Option<()>>,
     cookies: CookieJar,
 ) -> Result<impl IntoResponse> {
     let SsoRedirectParams { redirect_url } = params;
 
-    let openid_client = &services().globals.openid_client;
-
-    let (_key, client) = openid_client.as_ref().unwrap();
+    let client = services().globals.oidc.as_ref().unwrap();
+    let key = services().globals.macaroon.as_ref()
+.ok_or(Error::BadConfig(&"Missing macaroon key in config file."))?;
 
     use base64::{
         alphabet,
@@ -48,8 +55,12 @@ pub async fn get_sso_redirect(
 
     // https://datatracker.ietf.org/doc/html/rfc7636#section-4.1
     let mut arr = [0u8; PROOF_KEY_LEN];
+
     thread_rng().fill(&mut arr[..]);
     let proof_key = CUSTOM_ENGINE.encode(arr);
+
+    thread_rng().fill(&mut arr[..]);
+    let nonce = CUSTOM_ENGINE.encode(arr);
 
     let state = State {
         after_auth: redirect_url.to_string(),
@@ -57,53 +68,74 @@ pub async fn get_sso_redirect(
     };
 
     let state = serde_json::to_string(&state).unwrap();
-    let state_b64 = CUSTOM_ENGINE.encode(state.as_bytes());
-    let state_b64_sha256 = ring::digest::digest(&ring::digest::SHA256, &state_b64.as_bytes());
-    let state_b64_sha256_b64 = CUSTOM_ENGINE.encode(state_b64_sha256);
+
+    let key = macaroon::MacaroonKey::generate(key.as_ref());
+    let mut macaroon = macaroon::Macaroon::create(None, &key, "key".into()).unwrap();
+    let issuer = client.provider.auth_uri();
+
+    let expires = chrono::Utc::now() + chrono::TimeDelta::seconds(COOKIE_STATE_EXPIRATION_SECS);
+
+    macaroon.add_first_party_caveat(format!("state = {state}").into());
+    macaroon.add_first_party_caveat(format!("provider = ???", ).into());
+    macaroon.add_first_party_caveat(format!("state = {state}").into());
+    macaroon.add_first_party_caveat(format!("nonce = {nonce}").into());
+    macaroon.add_first_party_caveat(format!("redirect_url = {redirect_url}").into());
 
     let cookie1 = Cookie::build("openid-state", state_b64)
         .path("/sso_return")
         .secure(false) //FIXME
+        // .secure(true)
         .http_only(true)
         .same_site(SameSite::None)
         .max_age(time::Duration::seconds(COOKIE_STATE_EXPIRATION_SECS))
         .finish();
     let updated_jar = cookies.add(cookie1);
 
-    // https://docs.rs/openid/0.4.0/openid/struct.Options.html
+    let cookie2 = Cookie::build("openid-state-no-samesite", state_b64)
+        .path("/sso_return")
+        .http_only(true)
+        .max_age(time::Duration::seconds(COOKIE_STATE_EXPIRATION_SECS))
+        .finish();
+    let updated_jar = cookies.add(cookie1).add(cookie2);
+
+
     let auth_url = client.auth_url(&openid::Options {
-        scope: Some("email".into()), // TODO: openid only?
-        //TODO: nonce?
+        scope: Some("email".into()),
         state: Some(state_b64_sha256_b64.to_string()),
         ..Default::default()
     });
 
-    let redirect = axum::response::Redirect::to(&auth_url.to_string());
+    let redirect = axum::response::Redirect::to(auth_url.as_ref());
     Ok((updated_jar, redirect))
 }
 
 async fn request_token(
     oidc_client: &openid::DiscoveredClient,
     code: &str,
-) -> Result<Option<(Token, Userinfo)>, Error> {
-    let mut token: Token = oidc_client.request_token(&code).await.unwrap().into();
-    if let Some(mut id_token) = token.id_token.as_mut() {
-        oidc_client.decode_token(&mut id_token).unwrap();
-        oidc_client.validate_token(&id_token, None, None).unwrap();
-    // eprintln!("token: {:?}", id_token);
-    } else {
-        return Ok(None);
-    }
-    let userinfo = oidc_client.request_userinfo(&token).await.unwrap();
+) -> Result<(Token, Userinfo), Error> {
+    let mut token: Token = oidc_client.request_token(code).await
+        .map_err(|_| Error::BadRequest(ErrorKind::Unknown, "OICD token request failed."))?
+        .into();
 
-    // eprintln!("user info: {:?}", userinfo);
-    Ok(Some((token, userinfo)))
+    let Some(ref mut id_token) = token.id_token else {
+        return Err(Error::BadServerResponse("OICD token did not contain id_token"))?;
+    };
+
+    oidc_client.decode_token(id_token)
+        .map_err(|_| Error::BadRequest(ErrorKind::Unknown, "Couldn't decode token."))?;
+    oidc_client.validate_token(id_token, None, None)
+        .map_err(|_| Error::BadRequest(ErrorKind::Unknown, "Couldn't validate token."))?;
+
+    let userinfo = oidc_client.request_userinfo(&token).await
+        .map_err(|_| Error::BadServerResponse("Requesting userinfo failed."))?;
+
+    Ok((token, userinfo))
 }
 
 // #[derive(Debug)]
 // struct User {
 //     id: String,
-//     login: Option<String>,
+//     login: Option<String>()
 //     first_name: Option<String>,
 //     last_name: Option<String>,
 //     email: Option<String>,
@@ -146,7 +178,7 @@ pub async fn get_sso_return(
     // TODO: test with expired/deleted cookie
     let cookie_state = cookies.get("openid-state").unwrap();
     let cookie_state_b64_sha256 =
-        ring::digest::digest(&ring::digest::SHA256, &cookie_state.value().as_bytes());
+        digest::digest(&digest::SHA256, &cookie_state.value().as_bytes());
 
     if state != cookie_state_b64_sha256.as_ref() {
         // return ExampleResponse::Unauthorized(rocket::response::status::Unauthorized(Some(

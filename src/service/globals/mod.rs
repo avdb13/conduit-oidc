@@ -76,7 +76,8 @@ pub struct Service {
 
     pub shutdown: AtomicBool,
 
-    pub openid_client: Option<(macaroon::MacaroonKey, openid::DiscoveredClient)>,
+    pub oidc: Option<openid::DiscoveredClient>,
+    pub macaroon: Option<macaroon::MacaroonKey>,
 }
 
 /// Handles "rotation" of long-polling requests. "Rotation" in this context is similar to "rotation" of log files and the like.
