@@ -11,7 +11,7 @@ use tracing::warn;
 mod proxy;
 mod oidc;
 
-use self::{oidc::ProviderConfig, proxy::ProxyConfig};
+use self::{oidc::OidcConfig, proxy::ProxyConfig};
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Config {
@@ -83,7 +83,7 @@ pub struct Config {
     #[serde(default)]
     pub macaroon_key: Option<String>,
     #[serde(default)]
-    pub oidc: Vec<ProviderConfig>,
+    pub oidc: OidcConfig,
 
     pub emergency_password: Option<String>,
 
