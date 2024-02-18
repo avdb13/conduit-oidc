@@ -2,28 +2,30 @@ use serde::Deserialize;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct ProviderConfig  {
-    id: String,
-    name: String,
-    icon: Option<String>,
+    pub id: String,
+    pub name: String,
+    pub icon: Option<String>,
 
-    client: ClientConfig,
-    scopes: Vec<String>,
+    pub scopes: Vec<String>,
+    pub issuer: url::Url,
+    pub redirect_url: url::Url,
 
-    endpoint: EndpointConfig,
+    // pub discover: bool, ???
+    pub backchannel_logout: bool,
 
-    discover_url: Option<url::Url>,
-    backchannel_logout: bool,
+    pub client: ClientConfig,
+    pub endpoint: EndpointConfig,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct ClientConfig {
-    id: String,
-    secret: String,
+    pub id: String,
+    pub secret: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct EndpointConfig {
-    authorization: Option<url::Url>,
-    token: Option<url::Url>,
-    userinfo: Option<url::Url>,
+    pub authorization: Option<url::Url>,
+    pub token: Option<url::Url>,
+    pub userinfo: Option<url::Url>,
 }

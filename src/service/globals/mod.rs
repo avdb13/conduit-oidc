@@ -8,7 +8,7 @@ use ruma::{
 use crate::api::server_server::FedDest;
 
 use crate::{services, Config, Error, Result};
-use futures_util::FutureExt;
+use futures_util::{future, FutureExt, TryFutureExt};
 use hyper::{
     client::connect::dns::{GaiResolver, Name},
     service::Service as HyperService,
@@ -25,7 +25,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     error::Error as StdError,
     fs,
-    future::{self, Future},
+    future::Future,
     iter,
     net::{IpAddr, SocketAddr},
     path::PathBuf,
@@ -76,7 +76,7 @@ pub struct Service {
 
     pub shutdown: AtomicBool,
 
-    pub oidc: Option<openid::DiscoveredClient>,
+    pub oidc: HashMap<String, openid::DiscoveredClient>,
     pub macaroon: Option<macaroon::MacaroonKey>,
 }
 
@@ -185,26 +185,37 @@ impl Service {
         // Experimental, partially supported room versions
         let unstable_room_versions = vec![RoomVersionId::V3, RoomVersionId::V4, RoomVersionId::V5];
 
-        let openid_client = match config.openid.as_ref() {
-            Some(openid) => {
-                let mut key_bytes: [u8; 32] = [0; 32];
-                key_bytes.copy_from_slice(&base64::decode(&openid.macaroon_key).unwrap());
-                let secret_key: macaroon::MacaroonKey = key_bytes.into();
+        let macaroon = config
+            .macaroon_key
+            .as_ref()
+            .map(|s| macaroon::MacaroonKey::generate(s.as_bytes()));
 
-                let r = (
-                    secret_key,
-                    openid::DiscoveredClient::discover(
-                        openid.client_id.to_owned(),
-                        openid.secret.to_owned(),
-                        Some(openid.redirect_url.to_owned()),
-                        openid.discover_url.to_owned(),
-                    )
-                    .await
-                    .unwrap(),
-                );
-                Some(r)
+        let oidc = {
+            let discover_all = config.oidc.iter().map(|provider| {
+                openid::DiscoveredClient::discover_with_client(
+                    default_client.clone(),
+                    provider.client.id.clone(),
+                    provider.client.secret.clone(),
+                    Some(provider.redirect_url.to_string()),
+                    provider.issuer.clone(),
+                ).map_ok(|client| (provider.id.clone(), client))
+            });
+
+            let pairs = future::try_join_all(discover_all).await.map_err(|e| {
+                error!("failed to discover one or more OIDC providers: {}", e);
+                Error::bad_config("failed to discover one or more OIDC providers.")
+            })?;
+
+            let mut result = HashMap::with_capacity(config.oidc.len());
+
+            for (id, client) in pairs {
+                let None = result.insert(id, client) else {
+                    error!("OIDC providers must have unique IDs.");
+                    return Err(Error::bad_config("OIDC providers must have unique IDs."));
+                };
             }
-            None => None,
+
+            result
         };
 
         let mut s = Self {
@@ -237,7 +248,8 @@ impl Service {
             sync_receivers: RwLock::new(HashMap::new()),
             rotate: RotationHandler::new(),
             shutdown: AtomicBool::new(false),
-            openid_client,
+            macaroon,
+            oidc,
         };
 
         fs::create_dir_all(s.get_media_folder())?;

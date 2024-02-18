@@ -83,7 +83,7 @@ pub struct Config {
     #[serde(default)]
     pub macaroon_key: Option<String>,
     #[serde(default)]
-    pub oidc_provider: Option<Vec<ProviderConfig>>,
+    pub oidc: Vec<ProviderConfig>,
 
     pub emergency_password: Option<String>,
 
