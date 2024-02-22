@@ -1,8 +1,6 @@
 use super::{DEVICE_ID_LENGTH, TOKEN_LENGTH};
 use crate::{services, utils, Error, Result, Ruma};
-use base64::alphabet;
-use base64::engine;
-use base64::engine::general_purpose;
+use base64::{alphabet, engine, engine::general_purpose};
 // use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use macaroon::Verifier;
@@ -81,10 +79,20 @@ fn test_verifier_callback() {
 pub async fn get_login_types_route(
     _body: Ruma<get_login_types::v3::Request>,
 ) -> Result<get_login_types::v3::Response> {
+    let identity_providers = services()
+        .oidc
+        .get_metadata()
+        .clone()
+        .into_iter()
+        .map(Into::into)
+        .collect();
+
     Ok(get_login_types::v3::Response::new(vec![
         get_login_types::v3::LoginType::Password(Default::default()),
         get_login_types::v3::LoginType::ApplicationService(Default::default()),
-        get_login_types::v3::LoginType::Sso(get_login_types::v3::SsoLoginType::default()),
+        get_login_types::v3::LoginType::Sso(get_login_types::v3::SsoLoginType {
+            identity_providers,
+        }),
     ]))
 }
 
@@ -184,13 +192,13 @@ pub async fn login_route(body: Ruma<login::v3::Request>) -> Result<login::v3::Re
                 let mut verifier = Verifier::default();
                 verifier.satisfy_general(verifier_callback);
 
-                let openid_client = &services().globals.openid_client;
-                let (key, _client) = openid_client.as_ref().unwrap();
+                // let openid_client = &services().globals.openid_client;
+                // let (key, _client) = openid_client.as_ref().unwrap();
 
-                match verifier.verify(&macaroon, &key, Default::default()) {
-                    Ok(()) => println!("Macaroon verified!"),
-                    Err(error) => println!("Error validating macaroon: {:?}", error),
-                }
+                // match verifier.verify(&macaroon, &key, Default::default()) {
+                //     Ok(()) => println!("Macaroon verified!"),
+                //     Err(error) => println!("Error validating macaroon: {:?}", error),
+                // }
 
                 let user_id =
                     UserId::parse_with_server_name(user_id, services().globals.server_name())

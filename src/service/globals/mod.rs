@@ -75,8 +75,6 @@ pub struct Service {
     pub rotate: RotationHandler,
 
     pub shutdown: AtomicBool,
-
-    pub oidc: HashMap<String, openid::DiscoveredClient>,
     pub macaroon: Option<macaroon::MacaroonKey>,
 }
 
@@ -190,34 +188,6 @@ impl Service {
             .as_ref()
             .map(|s| macaroon::MacaroonKey::generate(s.as_bytes()));
 
-        let oidc = {
-            let discover_all = config.oidc.iter().map(|provider| {
-                openid::DiscoveredClient::discover_with_client(
-                    default_client.clone(),
-                    provider.client.id.clone(),
-                    provider.client.secret.clone(),
-                    Some(provider.redirect_url.to_string()),
-                    provider.issuer.clone(),
-                ).map_ok(|client| (provider.id.clone(), client))
-            });
-
-            let pairs = future::try_join_all(discover_all).await.map_err(|e| {
-                error!("failed to discover one or more OIDC providers: {}", e);
-                Error::bad_config("failed to discover one or more OIDC providers.")
-            })?;
-
-            let mut result = HashMap::with_capacity(config.oidc.len());
-
-            for (id, client) in pairs {
-                let None = result.insert(id, client) else {
-                    error!("OIDC providers must have unique IDs.");
-                    return Err(Error::bad_config("OIDC providers must have unique IDs."));
-                };
-            }
-
-            result
-        };
-
         let mut s = Self {
             db,
             config,
@@ -249,7 +219,6 @@ impl Service {
             rotate: RotationHandler::new(),
             shutdown: AtomicBool::new(false),
             macaroon,
-            oidc,
         };
 
         fs::create_dir_all(s.get_media_folder())?;

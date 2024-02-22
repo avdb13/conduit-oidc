@@ -179,6 +179,7 @@ async fn run_server() -> io::Result<()> {
                     header::CONTENT_TYPE,
                     header::ACCEPT,
                     header::AUTHORIZATION,
+                    header::LOCATION,
                 ])
                 .max_age(Duration::from_secs(86400)),
         )
@@ -400,11 +401,12 @@ fn routes() -> Router {
             "/_matrix/key/v2/server/:key_id",
             get(server_server::get_server_keys_deprecated_route),
         )
-        .route(
-            "/_matrix/client/v3/login/sso/redirect",
-            get(client_server::get_sso_redirect),
-        )
-        .route("/sso_return", get(client_server::get_sso_return))
+        // .route(
+        //     "/_matrix/client/v3/login/sso/redirect",
+        //     get(client_server::get_sso_redirect),
+        // )
+        .ruma_route(client_server::get_sso_redirect_with_idp_id)
+        // .route("/sso_return", get(client_server::get_sso_return))
         .ruma_route(server_server::get_public_rooms_route)
         .ruma_route(server_server::get_public_rooms_filtered_route)
         .ruma_route(server_server::send_transaction_message_route)

@@ -4,12 +4,16 @@ use argon2::{Config, Variant};
 use cmp::Ordering;
 use rand::prelude::*;
 use ring::digest;
-use ruma::{canonical_json::try_from_json_map, CanonicalJsonError, CanonicalJsonObject};
+use ruma::{
+    canonical_json::try_from_json_map, CanonicalJsonError, CanonicalJsonObject, MxcUri, MxcUriError,
+};
 use std::{
     cmp, fmt,
     str::FromStr,
     time::{SystemTime, UNIX_EPOCH},
 };
+
+use crate::services;
 
 pub fn millis_since_unix_epoch() -> u64 {
     SystemTime::now()
@@ -179,4 +183,27 @@ impl<'a> fmt::Display for HtmlEscape<'a> {
         }
         Ok(())
     }
+}
+
+pub fn mxc_to_http_or_none(mxc_uri: Option<&MxcUri>, width: &str, height: &str) -> Option<String> {
+    let Some(mxc_uri) = mxc_uri else {
+        return None;
+    };
+    let base_url = services()
+        .globals
+        .well_known_client()
+        .as_deref()
+        .unwrap_or(services().globals.server_name().as_str());
+    let (server_name, media_id) = mxc_uri.parts().ok()?;
+
+    let mut host =
+        format!("https://{base_url}/_matrix/media/v3/thumbnail/{server_name}/{media_id}")
+            .parse::<url::Url>()
+            .expect("server_name should be a valid domain");
+    host.query_pairs_mut()
+        .append_pair("width", width)
+        .append_pair("height", height)
+        .append_pair("method", "scale");
+
+    Some(host.to_string())
 }

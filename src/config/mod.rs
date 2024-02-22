@@ -11,6 +11,8 @@ use tracing::warn;
 mod proxy;
 mod oidc;
 
+pub use oidc::*;
+
 use self::{oidc::OidcConfig, proxy::ProxyConfig};
 
 #[derive(Clone, Debug, Deserialize)]

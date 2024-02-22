@@ -58,11 +58,15 @@ address = "127.0.0.1" # This makes sure Conduit can only be reached using the re
 
 macaroon_key = "this is the key"
 
-[[oidc_provider]]
-id = "keycloak"
-name = "keycloak"
-client.id = "conduit"
-client.secret = "00000000-0000-0000-0000-000000000000"
-discover_url = "https://keycloak.domain.com/auth/realms/example"
-scopes = ["openid", "read_user"]
-backchannel_logout = true
+[[global.oidc]]
+idp_id = "gitlab"
+idp_name = "Gitlab"
+idp_icon = "mxc://matrix.org/00000000000000000000000000000000"
+
+issuer = "https://gitlab.com"
+scopes = ["openid", "profile"]
+
+[global.oidc.client]
+id = "0000000000000000000000000000000000000000000000000000000000000000"
+secret = "0000000000000000000000000000000000000000000000000000000000000000"
+auth_method = "post"

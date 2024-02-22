@@ -56,7 +56,6 @@ http = "0.2.9"
 # Used to find data directory for default db path
 directories = "4.0.1"
 macaroon = { git = "https://github.com/macaroon-rs/macaroon.git", branch = "main" }
-openid = "0.9"
 # Used for ruma wrapper
 serde_json = { version = "1.0.96", features = ["raw_value"] }
 # Used for appservice registration files
@@ -122,6 +121,9 @@ async-trait = "0.1.68"
 
 sd-notify = { version = "0.4.1", optional = true }
 url = { version = "2.5.0", features = ["serde"] }
+openidconnect = { version = "3.5.0", features = ["jwk-alg", "accept-string-booleans"] }
+askama = { version = "0.12.1", features = ["with-axum"] }
+askama_axum = { version = "0.4.0", features = ["urlencode", "config"] }
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.26.2", features = ["resource"] }
