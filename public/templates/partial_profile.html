@@ -1,0 +1,20 @@
+{# html fragment to be included in SSO pages, to show the user's profile #}
+
+<div class="profile
+  {% if user_profile.avatar_url.is_some() %}
+    with-avatar
+  {% endif %}
+">
+    {% match crate::utils::mxc_to_http_or_none(user_profile.avatar_url.as_deref(), "64", "64") %}
+      {% when Some with (avatar_url) %}
+        <img src="{{ avatar_url }}" class="avatar" />
+      {% when None %}
+    {% endmatch %}
+    {% match user_profile.displayname %}
+      {% when Some with (displayname) %}
+        <div class="display-name">{{ displayname }}</div>
+      {% when None %}
+        <div class="display-name">{{ user_id.localpart() }}</div>
+    {% endmatch %}
+    <div class="user-id">{{ user_id }}</div>
+</div>
