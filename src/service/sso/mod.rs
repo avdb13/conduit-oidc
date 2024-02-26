@@ -7,14 +7,14 @@ use openidconnect::{
     AuthUrl, ClientId, ClientSecret, CsrfToken, IssuerUrl, Nonce, PkceCodeChallenge, RedirectUrl,
     Scope, TokenUrl, UserInfoUrl,
 };
+use ruma::api::client::session::get_login_types::v3::{IdentityProvider, IdentityProviderBrand};
 use tokio::sync::OnceCell;
 
-use crate::{
-    config::{DiscoveryConfig as Discovery, Metadata, ProviderConfig},
-    services, Config, Error,
-};
+use crate::{config::{DiscoveryConfig as Discovery, ProviderConfig}, services, Config, Error};
 
-pub const COOKIE_STATE_EXPIRATION_SECS: i64 = 10 * 60;
+pub const COOKIE_STATE_EXPIRATION_SECS: i64 = 60 * 60;
+
+pub mod templates;
 
 #[derive(Clone)]
 pub struct Client(Arc<CoreClient>);
@@ -47,15 +47,11 @@ impl Provider {
             .map(ToOwned::to_owned)
             .map(Scope::new);
 
-        let csrf = CsrfToken::new_random();
-        let nonce = Nonce::new_random();
-        let tmp = (csrf.clone(), nonce.clone());
-
         let mut req = client
             .authorize_url(
                 CoreAuthenticationFlow::Implicit(true),
-                move || csrf,
-                move || nonce,
+                || CsrfToken::new_random_len(36),
+                || Nonce::new_random_len(36),
             )
             .add_scopes(scopes);
 
@@ -88,10 +84,12 @@ impl Provider {
             .macaroon
             .unwrap_or_else(MacaroonKey::generate_random);
 
-        let mut macaroon = Macaroon::create(None, &key, "oidc".into()).unwrap();
-        let expires = chrono::Utc::now() + chrono::TimeDelta::seconds(COOKIE_STATE_EXPIRATION_SECS);
+        let mut macaroon = Macaroon::create(None, &key, "sso".into()).unwrap();
+        let expires = (time::OffsetDateTime::now_utc()
+            + time::Duration::seconds(COOKIE_STATE_EXPIRATION_SECS))
+        .to_string();
 
-        let idp_id = self.config.metadata.id.as_str();
+        let idp_id = self.config.id.as_str();
 
         macaroon.add_first_party_caveat(format!("idp_id = {idp_id}").into());
         macaroon.add_first_party_caveat(format!("state = {state}").into());
@@ -107,6 +105,23 @@ impl Provider {
     }
 }
 
+impl Into<IdentityProvider> for ProviderConfig {
+    fn into(self) -> IdentityProvider {
+        let brand = match IdentityProviderBrand::from(self.id.clone()) {
+            IdentityProviderBrand::_Custom(_) => None,
+            brand => Some(brand),
+        };
+
+        IdentityProvider {
+            id: self.id.clone(),
+            name: self.name.unwrap_or(self.id),
+            icon: self.icon,
+            brand,
+        }
+    }
+}
+
+
 pub struct Service {
     pub inner: Vec<Provider>,
 }
@@ -114,39 +129,22 @@ pub struct Service {
 impl Service {
     pub async fn build(config: &Config) -> Arc<Self> {
         Arc::new(Self {
-            inner: config.oidc.clone().into_iter().map(Provider::new).collect(),
+            inner: config.sso.clone().into_iter().map(Provider::new).collect(),
         })
     }
 
-    pub async fn get_provider(&self, idp_id: impl AsRef<str>) -> Result<Provider, ()> {
-        let Some(found) = self
-            .inner
+    pub fn get_provider(&self, idp_id: impl AsRef<str>) -> Option<Provider> {
+        self.inner
             .iter()
-            .find(|p| p.config.metadata.id == idp_id.as_ref())
-            .map(Clone::clone)
-        else {
-            return Err(());
-        };
-
-        // let client = found.client
-        //     .get_or_try_init(|| async { Client::new(config.clone()).await })
-        //     .await
-        //     .unwrap();
-
-        Ok(found)
+            .find(|p| p.config.id == idp_id.as_ref())
+            .map(ToOwned::to_owned)
     }
 
     pub fn get_all(&self) -> &[Provider] {
         self.inner.as_slice()
     }
 
-    // TODO
-    pub fn get_metadata(&self) -> Vec<Metadata> {
-        self.inner
-            .iter()
-            .map(|p| p.config.metadata.clone())
-            .collect()
-    }
+    pub fn validate_session(&self) {}
 
     // pub async fn generate_auth_url<'s, S>(&self, idp_id: String, scopes: S) -> ()
     // where
@@ -212,7 +210,7 @@ impl Client {
         )
         .expect("server_name should be a valid URL");
 
-        base_url.set_path("_conduit/client/oidc/callback");
+        base_url.set_path("_conduit/client/sso/callback");
         let redirect_url = RedirectUrl::from_url(base_url);
 
         let client = match config.discovery {

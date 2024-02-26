@@ -1,75 +1,20 @@
 use super::{DEVICE_ID_LENGTH, TOKEN_LENGTH};
 use crate::{services, utils, Error, Result, Ruma};
-use base64::{alphabet, engine, engine::general_purpose};
-// use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine;
-use macaroon::Verifier;
 use ruma::{
     api::client::{
         error::ErrorKind,
         session::{get_login_types, login, logout, logout_all},
         uiaa::UserIdentifier,
     },
-    events::GlobalAccountDataEventType,
-    push, UserId,
+    UserId,
 };
 use serde::Deserialize;
-use tracing::{debug, error, info, warn};
+use tracing::{info, warn};
 
 #[derive(Debug, Deserialize)]
 struct Claims {
     sub: String,
     //exp: usize,
-}
-
-#[tracing::instrument]
-fn verifier_callback(v: &macaroon::ByteString) -> bool {
-    use std::num::ParseIntError;
-
-    let result: Result<bool, String> = (|| {
-        if v.0.starts_with(b"time < ") {
-            let v2 = std::str::from_utf8(&v.0).map_err(|e| e.to_string())?;
-            let v3 = v2.trim_start_matches("time < ");
-            let v4: i64 = v3.parse().map_err(|e: ParseIntError| e.to_string())?;
-            let now = chrono::Utc::now().timestamp();
-            if now < v4 {
-                debug!("macaroon is not expired yet");
-                Ok(true)
-            } else {
-                debug!(
-                    "macaroon expired, v4={} , now={}, v4-now={}",
-                    v4,
-                    now,
-                    v4 - now
-                );
-                Ok(false)
-            }
-        } else {
-            Ok(false)
-        }
-    })();
-
-    match result {
-        Ok(r) => r,
-        Err(e) => {
-            error!("verifier_callback: {:?}", e);
-            false
-        }
-    }
-}
-
-#[test]
-fn test_verifier_callback() {
-    use macaroon::ByteString;
-
-    let now = chrono::Utc::now().timestamp();
-
-    assert!(verifier_callback(&ByteString(
-        format!("time < {}", now + 10).as_bytes().to_vec()
-    )));
-    assert!(!verifier_callback(&ByteString(
-        format!("time < {}", now - 10).as_bytes().to_vec()
-    )));
 }
 
 /// # `GET /_matrix/client/r0/login`
@@ -80,11 +25,10 @@ pub async fn get_login_types_route(
     _body: Ruma<get_login_types::v3::Request>,
 ) -> Result<get_login_types::v3::Response> {
     let identity_providers = services()
-        .oidc
-        .get_metadata()
-        .clone()
-        .into_iter()
-        .map(Into::into)
+        .sso
+        .inner
+        .iter()
+        .map(|p| p.config.clone().into())
         .collect();
 
     Ok(get_login_types::v3::Response::new(vec![
@@ -160,9 +104,6 @@ pub async fn login_route(body: Ruma<login::v3::Request>) -> Result<login::v3::Re
             user_id
         }
         login::v3::LoginInfo::Token(login::v3::Token { token }) => {
-            const CUSTOM_ENGINE: engine::GeneralPurpose =
-                engine::GeneralPurpose::new(&alphabet::URL_SAFE, general_purpose::NO_PAD);
-
             if let Some(jwt_decoding_key) = services().globals.jwt_decoding_key() {
                 let token = jsonwebtoken::decode::<Claims>(
                     token,
@@ -174,57 +115,6 @@ pub async fn login_route(body: Ruma<login::v3::Request>) -> Result<login::v3::Re
                 UserId::parse_with_server_name(username, services().globals.server_name()).map_err(
                     |_| Error::BadRequest(ErrorKind::InvalidUsername, "Username is invalid."),
                 )?
-            } else if macaroon::Macaroon::deserialize(&CUSTOM_ENGINE.decode(token).unwrap()) // TODO
-                .is_ok()
-            {
-                println!("TOKEN! {}", token);
-
-                let macaroon =
-                    macaroon::Macaroon::deserialize(&CUSTOM_ENGINE.decode(token).unwrap()).unwrap();
-
-                let v1 = macaroon.identifier();
-                let user_id = std::str::from_utf8(&v1.0).unwrap();
-                println!("identifier: {}", user_id);
-
-                println!("location: {:?}", macaroon.location());
-                println!("sig: {:?}", macaroon.signature());
-
-                let mut verifier = Verifier::default();
-                verifier.satisfy_general(verifier_callback);
-
-                // let openid_client = &services().globals.openid_client;
-                // let (key, _client) = openid_client.as_ref().unwrap();
-
-                // match verifier.verify(&macaroon, &key, Default::default()) {
-                //     Ok(()) => println!("Macaroon verified!"),
-                //     Err(error) => println!("Error validating macaroon: {:?}", error),
-                // }
-
-                let user_id =
-                    UserId::parse_with_server_name(user_id, services().globals.server_name())
-                        .map_err(|_| {
-                            Error::BadRequest(ErrorKind::InvalidUsername, "Username is invalid.")
-                        })?;
-
-                println!("user_id: {}", user_id);
-
-                if !services().users.exists(&user_id)? {
-                    let random_password = crate::utils::random_string(TOKEN_LENGTH);
-                    services().users.create(&user_id, Some(&random_password))?;
-                    services().account_data.update(
-                        None,
-                        &user_id,
-                        GlobalAccountDataEventType::PushRules.to_string().into(),
-                        &serde_json::to_value(ruma::events::push_rules::PushRulesEvent {
-                            content: ruma::events::push_rules::PushRulesEventContent {
-                                global: push::Ruleset::server_default(&user_id),
-                            },
-                        })
-                        .expect("to json always works"),
-                    )?;
-                }
-
-                user_id
             } else {
                 return Err(Error::BadRequest(
                     ErrorKind::Unknown,

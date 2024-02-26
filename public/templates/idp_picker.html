@@ -46,7 +46,7 @@
     <ul class="providers">
         {% for idp in metadata %}
         <li>
-            <a href="pick_idp?idp={{ idp.id }}&redirectUrl={{ redirect_url|urlencode_strict }}">
+            <a href="redirect/{{ idp.id }}&redirectUrl={{ redirect_url|urlencode_strict }}">
                 {% match crate::utils::mxc_to_http_or_none(idp.icon.as_deref(), "32", "32") %}
                     {% when Some with (icon) %}
                       <img src="{{ icon }}"/>

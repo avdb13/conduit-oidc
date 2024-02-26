@@ -1,51 +1,18 @@
 use openidconnect::JsonWebKeyId;
-use ruma::{
-    api::client::session::get_login_types::v3::{IdentityProvider, IdentityProviderBrand},
-    OwnedMxcUri,
-};
+use ruma::OwnedMxcUri;
 use serde::Deserialize;
-
-pub type OidcConfig = Vec<ProviderConfig>;
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct Metadata {
-    // Must be unique, used to distinguish OPs
-    #[serde(rename = "idp_id")]
-    pub id: String,
-
-    #[serde(rename = "idp_name")]
-    pub name: Option<String>,
-
-    #[serde(rename = "idp_icon")]
-    pub icon: Option<OwnedMxcUri>,
-}
-
-impl Into<IdentityProvider> for Metadata {
-    fn into(self) -> IdentityProvider {
-        let brand = match IdentityProviderBrand::from(self.id.clone()) {
-            IdentityProviderBrand::_Custom(_) => None,
-            brand => Some(brand),
-        };
-
-        IdentityProvider {
-            id: self.id.clone(),
-            name: self.name.unwrap_or(self.id),
-            icon: self.icon,
-            brand,
-        }
-    }
-}
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct ProviderConfig {
+    pub id: String,
+
+    pub name: Option<String>,
+
+    pub icon: Option<OwnedMxcUri>,
+
     // Information retrieved while creating the OpenID Application
     pub client: ClientConfig,
 
-    // Information for displaying the OpenID Provider
-    #[serde(flatten)]
-    pub metadata: Metadata,
-
-    // Foo
     // #[serde(deserialize_with = "crate::utils::deserialize_from_str")]
     pub issuer: url::Url,
 

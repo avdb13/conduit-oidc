@@ -24,7 +24,7 @@ use ruma::api::{
     IncomingRequest,
 };
 use tokio::signal;
-use tower::ServiceBuilder;
+use tower::{ServiceBuilder, ServiceExt};
 use tower_http::{
     cors::{self, CorsLayer},
     trace::TraceLayer,
@@ -401,11 +401,22 @@ fn routes() -> Router {
             "/_matrix/key/v2/server/:key_id",
             get(server_server::get_server_keys_deprecated_route),
         )
-        // .route(
-        //     "/_matrix/client/v3/login/sso/redirect",
-        //     get(client_server::get_sso_redirect),
-        // )
-        .ruma_route(client_server::get_sso_redirect_with_idp_id)
+        .route(
+            "/_matrix/client/v3/login/sso/redirect",
+            get(client_server::get_sso_redirect),
+        )
+        .route(
+            "/_matrix/client/v3/login/sso/redirect/",
+            get(client_server::get_sso_redirect),
+        )
+        .route(
+            "/_matrix/client/v3/login/sso/redirect/:idp_id",
+            get(client_server::get_sso_redirect_with_provider),
+        )
+        .route(
+            "/_conduit/v3/login/sso/callback",
+            get(client_server::get_sso_callback),
+        )
         // .route("/sso_return", get(client_server::get_sso_return))
         .ruma_route(server_server::get_public_rooms_route)
         .ruma_route(server_server::get_public_rooms_filtered_route)

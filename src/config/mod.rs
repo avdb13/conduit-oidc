@@ -9,11 +9,11 @@ use serde::{de::IgnoredAny, Deserialize};
 use tracing::warn;
 
 mod proxy;
-mod oidc;
+mod sso;
 
-pub use oidc::*;
+use self::proxy::ProxyConfig;
 
-use self::{oidc::OidcConfig, proxy::ProxyConfig};
+pub use sso::*;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Config {
@@ -85,7 +85,7 @@ pub struct Config {
     #[serde(default)]
     pub macaroon_key: Option<String>,
     #[serde(default)]
-    pub oidc: OidcConfig,
+    pub sso: Vec<ProviderConfig>,
 
     pub emergency_password: Option<String>,
 

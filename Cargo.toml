@@ -35,11 +35,11 @@ axum-extra = { version = "0.8.0", features = ["cookie"] }
 axum-server = { version = "0.5.1", features = ["tls-rustls"] }
 tower = { version = "0.4.13", features = ["util"] }
 tower-http = { version = "0.4.1", features = ["add-extension", "cors", "sensitive-headers", "trace", "util"] }
-chrono = "0.4"
 
 # Used for matrix spec type definitions and helpers
 #ruma = { version = "0.4.0", features = ["compat", "rand", "appservice-api-c", "client-api", "federation-api", "push-gateway-api-c", "state-res", "unstable-pre-spec", "unstable-exhaustive-types"] }
-ruma = { git = "https://github.com/ruma/ruma", rev = "1a1c61ee1e8f0936e956a3b69c931ce12ee28475", features = ["compat", "rand", "appservice-api-c", "client-api", "federation-api", "push-gateway-api-c", "state-res", "unstable-msc2448", "unstable-msc3575", "unstable-exhaustive-types", "ring-compat", "unstable-unspecified" ] }
+#ruma = { git = "https://github.com/ruma/ruma", rev = "1a1c61ee1e8f0936e956a3b69c931ce12ee28475", features = ["compat", "rand", "appservice-api-c", "client-api", "federation-api", "push-gateway-api-c", "state-res", "unstable-msc2448", "unstable-msc3575", "unstable-exhaustive-types", "ring-compat", "unstable-unspecified" ] }
+ruma = { git = "https://github.com/avdb13/ruma", branch = "main", features = ["compat", "rand", "appservice-api-c", "client-api", "federation-api", "push-gateway-api-c", "state-res", "unstable-msc2448", "unstable-msc3575", "unstable-exhaustive-types", "ring-compat", "unstable-unspecified" ] }
 #ruma = { git = "https://github.com/timokoesters/ruma", rev = "4ec9c69bb7e09391add2382b3ebac97b6e8f4c64", features = ["compat", "rand", "appservice-api-c", "client-api", "federation-api", "push-gateway-api-c", "state-res", "unstable-msc2448", "unstable-msc3575", "unstable-exhaustive-types", "ring-compat", "unstable-unspecified" ] }
 #ruma = { path = "../ruma/crates/ruma", features = ["compat", "rand", "appservice-api-c", "client-api", "federation-api", "push-gateway-api-c", "state-res", "unstable-msc2448", "unstable-msc3575", "unstable-exhaustive-types", "ring-compat", "unstable-unspecified" ] }
 
@@ -55,7 +55,8 @@ bytes = "1.4.0"
 http = "0.2.9"
 # Used to find data directory for default db path
 directories = "4.0.1"
-macaroon = { git = "https://github.com/macaroon-rs/macaroon.git", branch = "main" }
+# Used for SSO authorization
+macaroon = "0.3.0"
 # Used for ruma wrapper
 serde_json = { version = "1.0.96", features = ["raw_value"] }
 # Used for appservice registration files
@@ -111,8 +112,6 @@ clap = { version = "4.3.0", default-features = false, features = ["std", "derive
 futures-util = { version = "0.3.28", default-features = false }
 # Used for reading the configuration from conduit.toml & environment variables
 figment = { version = "0.10.8", features = ["env", "toml"] }
-uuid = { version = "0.8", features = ["serde", "v4"] }
-time = "0.3.22"
 
 tikv-jemalloc-ctl = { version = "0.5.0", features = ["use_std"], optional = true }
 tikv-jemallocator = { version = "0.5.0", features = ["unprefixed_malloc_on_supported_platforms"], optional = true }
@@ -120,16 +119,22 @@ lazy_static = "1.4.0"
 async-trait = "0.1.68"
 
 sd-notify = { version = "0.4.1", optional = true }
-url = { version = "2.5.0", features = ["serde"] }
+
+# Used for SSO through OIDC
 openidconnect = { version = "3.5.0", features = ["jwk-alg", "accept-string-booleans"] }
+url = { version = "2.5.0", features = ["serde"] }
+
+# Used for SSO as fallback for non-web clients
 askama = { version = "0.12.1", features = ["with-axum"] }
 askama_axum = { version = "0.4.0", features = ["urlencode", "config"] }
+time = "0.3.34"
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.26.2", features = ["resource"] }
 
 [features]
-default = ["conduit_bin", "backend_sqlite", "backend_rocksdb", "systemd"]
+#default = ["conduit_bin", "backend_sqlite", "backend_rocksdb", "systemd"]
+default = ["conduit_bin", "backend_rocksdb"]
 #backend_sled = ["sled"]
 backend_persy = ["persy", "parking_lot"]
 backend_sqlite = ["sqlite"]
@@ -173,7 +178,7 @@ systemd-units = { unit-name = "matrix-conduit" }
 
 [profile.dev]
 lto = 'off'
-incremental = true
+incremental = false
 
 [profile.release]
 lto = 'thin'

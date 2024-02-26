@@ -20,10 +20,10 @@
 # for more information
 
 # YOU NEED TO EDIT THIS
-#server_name = "your.server.name"
+server_name = "localhost:6167"
 
 # This is the only directory where Conduit will save its data
-database_path = "/var/lib/matrix-conduit/"
+database_path = "./db"
 database_backend = "rocksdb"
 
 # The port Conduit will be running on. You need to set up a reverse proxy in
@@ -51,22 +51,22 @@ enable_lightning_bolt = true
 trusted_servers = ["matrix.org"]
 
 #max_concurrent_requests = 100 # How many requests Conduit sends to other servers at the same time
-#log = "warn,state_res=warn,rocket=off,_=off,sled=off"
+log = "info"
 
 address = "127.0.0.1" # This makes sure Conduit can only be reached using the reverse proxy
 #address = "0.0.0.0" # If Conduit is running in a container, make sure the reverse proxy (ie. Traefik) can reach it.
 
-macaroon_key = "this is the key"
+macaroon_key = "this is the key" # Currently only used in SSO as short-term login token
 
-[[global.oidc]]
-idp_id = "gitlab"
-idp_name = "Gitlab"
-idp_icon = "mxc://matrix.org/00000000000000000000000000000000"
+[[global.sso]]
+id = "gitlab"
+name = "Gitlab"
+icon = "mxc://kurosaki.cx/KKbSvyoUEYXdrzXBJoOJoLpZbqFYrCpW"
 
 issuer = "https://gitlab.com"
 scopes = ["openid", "profile"]
 
-[global.oidc.client]
-id = "0000000000000000000000000000000000000000000000000000000000000000"
-secret = "0000000000000000000000000000000000000000000000000000000000000000"
+[global.sso.client]
+id = "12dd00d057420beda06fd5edcd21287026dc0c66ba5c02d40c2eff8b559c6709"
+secret = "3a806573cacf5da560b8c720cf32019255908c83e31ba78d280cf08a4eb619fd"
 auth_method = "post"

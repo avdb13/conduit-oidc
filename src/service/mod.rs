@@ -13,7 +13,7 @@ pub mod appservice;
 pub mod globals;
 pub mod key_backups;
 pub mod media;
-pub mod oidc;
+pub mod sso;
 pub mod pdu;
 pub mod pusher;
 pub mod rooms;
@@ -35,7 +35,7 @@ pub struct Services {
     pub key_backups: key_backups::Service,
     pub media: media::Service,
     pub sending: Arc<sending::Service>,
-    pub oidc: Arc<oidc::Service>,
+    pub sso: Arc<sso::Service>,
 }
 
 impl Services {
@@ -116,8 +116,7 @@ impl Services {
             key_backups: key_backups::Service { db },
             media: media::Service { db },
             sending: sending::Service::build(db, &config),
-
-            oidc: oidc::Service::build(&config).await,
+            sso: sso::Service::build(&config).await,
             globals: globals::Service::load(db, config).await?,
         })
     }
