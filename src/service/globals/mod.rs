@@ -75,7 +75,7 @@ pub struct Service {
     pub rotate: RotationHandler,
 
     pub shutdown: AtomicBool,
-    pub macaroon: Option<macaroon::MacaroonKey>,
+    pub macaroon_key: Option<String>,
 }
 
 /// Handles "rotation" of long-polling requests. "Rotation" in this context is similar to "rotation" of log files and the like.
@@ -183,11 +183,6 @@ impl Service {
         // Experimental, partially supported room versions
         let unstable_room_versions = vec![RoomVersionId::V3, RoomVersionId::V4, RoomVersionId::V5];
 
-        let macaroon = config
-            .macaroon_key
-            .as_ref()
-            .map(|s| macaroon::MacaroonKey::generate(s.as_bytes()));
-
         let mut s = Self {
             db,
             config,
@@ -218,7 +213,7 @@ impl Service {
             sync_receivers: RwLock::new(HashMap::new()),
             rotate: RotationHandler::new(),
             shutdown: AtomicBool::new(false),
-            macaroon,
+            macaroon_key: config.macaroon_key.clone(),
         };
 
         fs::create_dir_all(s.get_media_folder())?;

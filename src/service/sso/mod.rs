@@ -1,24 +1,32 @@
 use std::sync::Arc;
 
+mod session;
+
 use futures_util::future::{self};
-use macaroon::{Macaroon, Verifier};
 use openidconnect::{
-    core::{CoreAuthenticationFlow, CoreClient, CoreGenderClaim, CoreProviderMetadata},
+    core::{
+        CoreAuthenticationFlow, CoreClient, CoreGenderClaim, CoreIdTokenClaims,
+        CoreProviderMetadata, CoreUserInfoClaims,
+    },
     reqwest::async_http_client,
     AccessTokenHash, AdditionalClaims, AuthUrl, AuthorizationCode, ClientId, ClientSecret,
     CsrfToken, IssuerUrl, Nonce, NonceVerifier, OAuth2TokenResponse, PkceCodeChallenge,
-    RedirectUrl, Scope, SubjectIdentifier, TokenResponse, TokenUrl, UserInfoClaims, UserInfoUrl,
+    PkceCodeVerifier, RedirectUrl, Scope, SubjectIdentifier, TokenResponse, TokenUrl,
+    UserInfoClaims, UserInfoUrl,
 };
 use ruma::api::client::{error::ErrorKind, session::get_login_types::v3::IdentityProvider};
-use time::macros::format_description;
+use time::{macros::format_description, OffsetDateTime};
 
 use crate::{
     config::{ClientConfig, DiscoveryConfig as Discovery, ProviderConfig},
     services, Config, Error,
 };
 
+use self::macaroon::Macaroon;
+
 pub const COOKIE_STATE_EXPIRATION_SECS: i64 = 60 * 60;
 
+pub mod macaroon;
 pub mod templates;
 
 pub struct Service {
@@ -128,116 +136,54 @@ impl Provider {
         Ok(Arc::new(config))
     }
 
-    pub async fn handle_redirect(&self, redirect_url: &str) -> (url::Url, String, String) {
+    pub async fn handle_redirect(&self, redirect_url: &RedirectUrl) -> (url::Url, String, String) {
         let client = self.client.clone();
         let scopes = self.scopes.iter().map(ToOwned::to_owned).map(Scope::new);
 
         let mut req = client
             .authorize_url(
                 CoreAuthenticationFlow::Implicit(true),
-                || CsrfToken::new_random_len(36),
-                || Nonce::new_random_len(36),
+                || CsrfToken::new_random_len(48),
+                || Nonce::new_random_len(48),
             )
             .add_scopes(scopes);
 
-        let (challenge, verifier) = PkceCodeChallenge::new_random_sha256();
-        if let Some(true) = self.pkce {
-            req = req.set_pkce_challenge(challenge);
-        }
+        let pkce_verifier = match self.pkce {
+            Some(true) => {
+                let (challenge, verifier) = PkceCodeChallenge::new_random_sha256();
+                req = req.set_pkce_challenge(challenge);
+
+                Some(verifier)
+            }
+            _ => None,
+        };
 
         let (url, csrf, nonce) = req.url();
 
-        let cookie = self.generate_macaroon(
-            self.inner.id.as_str(),
-            csrf.secret(),
-            nonce.secret(),
-            redirect_url,
-            self.pkce.map(|_| verifier.secret().as_str()),
-        );
+        let key = services()
+            .globals
+            .macaroon_key
+            .as_deref()
+            .expect("macaroon key")
+            .to_owned();
+        let cookie = Macaroon {
+            idp_id: self.inner.id.clone(),
+            csrf,
+            nonce: nonce.clone(),
+            time: OffsetDateTime::now_utc().unix_timestamp(),
+            redirect_url: Some(redirect_url.clone()),
+            pkce_verifier,
+        };
+        let cookie = cookie.encode(&key).expect("bad key");
 
         (url, nonce.secret().to_owned(), cookie)
-    }
-
-    pub fn generate_macaroon(
-        &self,
-        idp_id: &str,
-        state: &str,
-        nonce: &str,
-        redirect_url: &str,
-        pkce: Option<&str>,
-    ) -> String {
-        let key = services().globals.macaroon.unwrap();
-
-        let mut macaroon = Macaroon::create(None, &key, idp_id.into()).unwrap();
-        let expires = (time::OffsetDateTime::now_utc()
-            + time::Duration::seconds(COOKIE_STATE_EXPIRATION_SECS))
-        .to_string();
-
-        let idp_id = self.inner.id.as_str();
-
-        for caveat in [
-            format!("idp_id = {idp_id}"),
-            format!("state = {state}"),
-            format!("nonce = {nonce}"),
-            format!("redirect_url = {redirect_url}"),
-            format!("time < {expires}"),
-        ] {
-            macaroon.add_first_party_caveat(caveat.into());
-        }
-
-        if let Some(verifier) = pkce {
-            macaroon.add_first_party_caveat(format!("verifier = {}", verifier).into());
-        }
-
-        macaroon.serialize(macaroon::Format::V2).unwrap()
-    }
-
-    pub fn verify_macaroon(cookie: &[u8], state: CsrfToken) -> Result<Macaroon, Error> {
-        let mut verifier = Verifier::default();
-
-        let macaroon = Macaroon::deserialize(cookie).map_err(|e| {
-            Error::BadRequest(ErrorKind::BadJson, "Could not deserialize SSO macaroon")
-        })?;
-
-        verifier.satisfy_exact(format!("state = {}", state.secret()).into());
-
-        // let verification = |s: &ByteString, id: &str| {
-        //     s.0.starts_with(format!("{id} =").as_bytes()); // TODO
-        // };
-
-        verifier.satisfy_general(|s| s.0.starts_with(b"idp_id ="));
-        verifier.satisfy_general(|s| s.0.starts_with(b"nonce ="));
-        verifier.satisfy_general(|s| s.0.starts_with(b"redirect_url ="));
-
-        verifier.satisfy_general(|s| {
-            let format_desc = format_description!(
-                "[year]-[month]-[day] [hour]:[minute]:[second] [offset_hour \
-             sign:mandatory]:[offset_minute]:[offset_second]"
-            );
-
-            let now = time::OffsetDateTime::now_utc();
-
-            time::OffsetDateTime::parse(std::str::from_utf8(&s.0).unwrap(), format_desc)
-                .map(|expires| now < expires)
-                .unwrap_or(false)
-        });
-
-        let key = services().globals.macaroon.unwrap();
-
-        verifier
-            .verify(&macaroon, &key, Default::default())
-            .map_err(|e| {
-                Error::BadRequest(ErrorKind::Unauthorized, "Macaroon verification failed")
-            })?;
-
-        Ok(macaroon)
     }
 
     pub async fn handle_callback<Claims: AdditionalClaims>(
         &self,
         code: AuthorizationCode,
         nonce: Nonce,
-    ) -> Result<UserInfoClaims<Claims, CoreGenderClaim>, Error> {
+    ) -> Result<(), Error> {
         let resp = self
             .client
             .exchange_code(code)
@@ -260,14 +206,12 @@ impl Provider {
             }
         }
 
-        let Ok(req) = self.client.user_info(
-            resp.access_token().to_owned(),
-            self.subject_claim.clone().map(SubjectIdentifier::new),
-        ) else {
-            resp.extra_fields();
-            panic!()
-        };
-
-        Ok(req.request_async(async_http_client).await.unwrap())
+        // match self.client.user_info(
+        //     resp.access_token().to_owned(),
+        //     self.subject_claim.clone().map(SubjectIdentifier::new),
+        // ).map(|req| req.request_async(async_http_client)) {
+        //     Err(e) => Ok(claims),
+        //     Ok(req) => req.await,
+        // }
     }
 }
